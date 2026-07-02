@@ -1,0 +1,49 @@
+services:
+  sync-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sync-gateway:latest
+    container_name: sync-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000"
+    environment:
+      # ---- Nacos 配置中心（留空则仅使用本地 config/gateway.yaml 兜底） ----
+      NACOS_SERVER: "${NACOS_SERVER:-}"
+      NACOS_DATA_ID: "${NACOS_DATA_ID:-sync-gateway.yaml}"
+      CONFIG_MAX_HISTORY: "${CONFIG_MAX_HISTORY:-5}"
+      # ---- 各 Provider 密钥，按需在 .env 中覆盖 ----
+      VOLC_SD_BASE_URL: "${VOLC_SD_BASE_URL:-}"
+      VOLC_SD_API_KEY: "${VOLC_SD_API_KEY:-}"
+      SEEDANCE_BASE_URL: "${SEEDANCE_BASE_URL:-}"
+      SEEDANCE_API_KEY: "${SEEDANCE_API_KEY:-}"
+      KLING_BASE_URL: "${KLING_BASE_URL:-}"
+      KLING_API_KEY: "${KLING_API_KEY:-}"
+      # ---- Gunicorn 并发调优（默认按 CPU*2+1 自动计算，可显式覆盖） ----
+      GUNICORN_WORKERS: "${GUNICORN_WORKERS:-}"
+      GUNICORN_WORKER_CONNECTIONS: "${GUNICORN_WORKER_CONNECTIONS:-1000}"
+      GUNICORN_TIMEOUT: "${GUNICORN_TIMEOUT:-150}"
+      GUNICORN_LOG_LEVEL: "${GUNICORN_LOG_LEVEL:-info}"
+    volumes:
+      # 挂载本地配置文件，修改后重启容器即可生效，无需重新构建镜像
+      - ./config/gateway.yaml:/app/config/gateway.yaml:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "${GATEWAY_CPU_LIMIT:-2}"
+          memory: "${GATEWAY_MEM_LIMIT:-1g}"
+        reservations:
+          cpus: "${GATEWAY_CPU_RESERVE:-0.5}"
+          memory: "${GATEWAY_MEM_RESERVE:-256m}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

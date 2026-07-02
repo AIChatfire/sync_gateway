@@ -1,5 +1,8 @@
 __pycache__
 *venv
+.workbuddy
+tests
+.pytest_cache
 .classpath
 .dockerignore
 .env

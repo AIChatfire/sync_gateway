@@ -25,9 +25,14 @@ sync_gateway/
 │       └── nacos.py
 ├── config/                 # 配置文件
 │   └── gateway.yaml        # Provider 映射配置
+├── deploy/                 # 部署相关配置
+│   └── gunicorn.conf.py    # Gunicorn 生产配置（worker 数、超时等）
 ├── tests/                  # 测试
 ├── scripts/                # 运维/初始化脚本
 ├── docs/                   # 文档
+├── Dockerfile              # 多阶段构建镜像
+├── docker-compose.yml      # 容器化部署编排
+├── .env.example            # 环境变量示例
 ├── requirements.txt
 └── README.md
 ```
@@ -45,6 +50,58 @@ pip install -r requirements.txt
 # 3. 启动服务（从项目根目录运行）
 python -m app.main
 ```
+
+## Docker 部署（生产 / 高并发）
+
+生产环境使用 `gunicorn + uvicorn worker` 多进程模式，替代开发用的 `python -m app.main` 单进程模式，充分利用多核 CPU 并发处理请求。
+
+### 快速启动
+
+```bash
+# 1. 复制并按需修改环境变量
+cp .env.example .env
+
+# 2. 构建镜像并启动（默认 worker 数 = CPU*2+1，最多 9 个）
+docker compose up -d --build
+
+# 3. 查看日志
+docker compose logs -f sync-gateway
+
+# 4. 健康检查
+curl http://localhost:8000/health
+```
+
+### 手动 docker 命令（不依赖 compose）
+
+```bash
+docker build -t sync-gateway:latest .
+
+docker run -d --name sync-gateway \
+  -p 8000:8000 \
+  -e NACOS_SERVER=http://nacos:8848 \
+  -e VOLC_SD_BASE_URL=https://xxx -e VOLC_SD_API_KEY=xxx \
+  -v $(pwd)/config/gateway.yaml:/app/config/gateway.yaml:ro \
+  sync-gateway:latest
+```
+
+### 并发调优参数（`deploy/gunicorn.conf.py`，均可用环境变量覆盖）
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `GUNICORN_WORKERS` | `CPU*2+1`（上限 9） | 进程数，每个进程独立事件循环，横向扩展并发能力 |
+| `GUNICORN_WORKER_CONNECTIONS` | 1000 | 单个 worker 内的最大并发连接数（uvicorn 事件循环承载） |
+| `GUNICORN_TIMEOUT` | 150 | worker 超时（秒），需大于下游 Provider 最长超时（当前 120s） |
+| `GUNICORN_GRACEFUL_TIMEOUT` | 30 | 优雅关闭等待时间 |
+| `GUNICORN_MAX_REQUESTS` | 2000 | 单 worker 处理请求数上限，超过后自动重启，防止内存泄漏累积 |
+| `GUNICORN_PRELOAD` | true | 预加载应用后再 fork worker，减少启动时间与内存占用 |
+
+**容量估算参考**：单机 4 核场景下，`workers=9`、`worker_connections=1000`，理论最大并发连接数 ≈ 9000（实际吞吐取决于下游 Provider 响应速度，同步生成类接口通常是 I/O 瓶颈而非 CPU 瓶颈）。如需进一步扩容，优先水平扩展多个容器实例 + 前置负载均衡（Nginx/云 LB），而非无限堆高单机 worker 数。
+
+### 高可用建议
+
+- **多实例 + 负载均衡**：`docker compose up -d --scale sync-gateway=3` 或用 K8s Deployment 多副本，前面挂 Nginx/云 LB 做流量分发
+- **配置热更新不依赖重启**：生产建议接入 Nacos（设置 `NACOS_SERVER`），配置变更秒级生效，无需重新部署容器
+- **健康检查已内置**：Dockerfile 中 `HEALTHCHECK` 与 compose 中的 `healthcheck` 均探测 `/health`，异常会被容器编排系统自动重启/剔除流量
 
 ## 调用示例
 
