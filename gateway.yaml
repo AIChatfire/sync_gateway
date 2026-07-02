@@ -1,0 +1,57 @@
+version: "2026-07-02.001"
+active: true
+
+providers:
+  # 透传模式：火山接口已是原生格式，零转换
+  volc_sd:
+    base_url: "${VOLC_SD_BASE_URL}"
+    auth: {type: bearer, env: VOLC_SD_API_KEY}
+    passthrough: true
+    endpoints:
+      generate: {method: POST, path: "/v1/images/generations", timeout: 60}
+
+  # 声明式+表达式：官方 Seedance 需要字段映射
+  seedance:
+    base_url: "${SEEDANCE_BASE_URL}"
+    auth: {type: bearer, env: SEEDANCE_API_KEY}
+    endpoints:
+      generate: {method: POST, path: "/v1/images/generations", timeout: 120}
+    request_map:
+      model: {const: "seedance-image"}
+      "input.prompt": {from: prompt}
+      "input.width": {from: width, default: 1024}
+      "input.height": {from: height, default: 1024}
+      "input.quality":
+        from: quality
+        default: "standard"
+        map: {sd: "standard", hd: "high_quality"}
+      "input.seed": {from: seed}
+    response_map:
+      image_url: {from: output.image_url}
+      seed: {from: output.seed}
+      created: {from: created_at}
+
+  # 脚本模式：Kling 复杂预处理
+  kling:
+    base_url: "${KLING_BASE_URL}"
+    auth: {type: bearer, env: KLING_API_KEY}
+    endpoints:
+      generate: {method: POST, path: "/v1/images/generations", timeout: 90}
+    request_script: |
+      def transform(body):
+          ratio = body.get("aspect_ratio", "16:9")
+          mapping = {"16:9": (1024,576), "9:16": (576,1024), "1:1": (1024,1024)}
+          w, h = mapping.get(ratio, (1024,1024))
+          return {
+              "prompt": body.get("prompt"),
+              "negative_prompt": body.get("negative_prompt"),
+              "width": w,
+              "height": h,
+              "num": body.get("n", 1),
+          }
+    response_script: |
+      def transform(body):
+          return {
+              "images": [{"url": i["url"], "seed": i.get("seed")} for i in body.get("data", [])],
+              "created": body.get("created"),
+          }
