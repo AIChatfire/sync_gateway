@@ -108,3 +108,6 @@ ENV/
 # Project runtime
 .history/
 *.pid
+
+# WorkBuddy agent memory (local only, not for version control)
+.workbuddy/

@@ -103,6 +103,34 @@ docker run -d --name sync-gateway \
 - **配置热更新不依赖重启**：生产建议接入 Nacos（设置 `NACOS_SERVER`），配置变更秒级生效，无需重新部署容器
 - **健康检查已内置**：Dockerfile 中 `HEALTHCHECK` 与 compose 中的 `healthcheck` 均探测 `/health`，异常会被容器编排系统自动重启/剔除流量
 
+## CI/CD
+
+`.github/workflows/docker-image.yml` 定义了完整流水线，`test` 通过后才会 `build-and-push`：
+
+```
+push/PR → test（flake8 + pytest）→ build-and-push（仅 main/tag，PR 不推送）→ 推送到 GHCR
+```
+
+- **触发条件**：push 到 `main`、打 `v*.*.*` 标签、PR 到 `main`（PR 只跑测试，不构建推送）、也支持手动触发（Actions 页面 `Run workflow`）
+- **镜像仓库**：GitHub Container Registry（`ghcr.io/<owner>/<repo>`），用仓库自带的 `GITHUB_TOKEN` 鉴权，无需额外配置 secret
+- **镜像标签规则**：
+  | 触发场景 | 生成标签 |
+  |---|---|
+  | push 到 `main` | `main`、`latest`、`<7位短commit sha>` |
+  | 打标签 `v1.2.3` | `1.2.3`、`1.2`、`latest` |
+  | 其他分支 push | `<分支名>` |
+- **构建加速**：用 GitHub Actions 缓存（`type=gha`）复用 Docker 层，多阶段 Dockerfile 的依赖安装层命中缓存后可跳过重新 `pip install`
+
+**首次使用前**：在仓库 `Settings → Actions → General → Workflow permissions` 里勾选 "Read and write permissions"，否则 `packages: write` 权限不足会导致推送失败。
+
+**上线拉取镜像**（免本地构建）：
+```bash
+# .env 中设置 GATEWAY_IMAGE=ghcr.io/<owner>/sync_gateway:latest
+docker compose pull && docker compose up -d
+```
+
+如需扩展为「push 后自动 SSH 到服务器部署」，在 `build-and-push` job 后追加一个 deploy job（用 `appleboy/ssh-action` 之类的 action），把服务器地址/账号/密钥配置到仓库 Secrets 即可，目前先保持"构建推送镜像、手动拉取上线"这一步，避免过早引入生产凭据风险。
+
 ## 调用示例
 
 ### 透传模式（火山接口）

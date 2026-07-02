@@ -1,9 +1,11 @@
 services:
   sync-gateway:
+    # 本地开发：留空 GATEWAY_IMAGE，走 build 本地构建
+    # 生产部署：设置 GATEWAY_IMAGE=ghcr.io/aichatfire/sync_gateway:latest，直接拉取 CI 构建好的镜像（docker compose pull && up -d）
+    image: "${GATEWAY_IMAGE:-sync-gateway:latest}"
     build:
       context: .
       dockerfile: Dockerfile
-    image: sync-gateway:latest
     container_name: sync-gateway
     restart: unless-stopped
     ports:
