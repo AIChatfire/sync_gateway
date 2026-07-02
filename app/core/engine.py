@@ -1,7 +1,7 @@
 """四模态转换引擎：透传 / 声明式 / 表达式 / 脚本"""
 import copy
 from typing import Dict, Any, Optional, Callable
-from core.config import ProviderConfig, FieldRule
+from app.core.config import ProviderConfig, FieldRule
 
 
 class TransformEngine:
@@ -60,6 +60,16 @@ class TransformEngine:
             return result
         return transformer
 
+    @staticmethod
+    def _get_path(obj: Dict, path: str) -> Any:
+        """按点号路径读取嵌套 dict"""
+        keys = path.split(".")
+        for k in keys:
+            if not isinstance(obj, dict) or k not in obj:
+                return None
+            obj = obj[k]
+        return obj
+
     def _resolve_rule(self, body: Dict[str, Any], rule: FieldRule) -> Any:
         # 表达式优先
         if rule.expr:
@@ -67,8 +77,10 @@ class TransformEngine:
         # 常量
         if rule.const is not None:
             return rule.const
-        # 字段提取
-        raw = body.get(rule.from_field, rule.default) if rule.from_field else rule.default
+        # 字段提取（支持嵌套路径）
+        raw = self._get_path(body, rule.from_field) if rule.from_field else rule.default
+        if raw is None and rule.default is not None:
+            raw = rule.default
         # 枚举映射
         if rule.map and raw in rule.map:
             return rule.map[raw]

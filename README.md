@@ -10,11 +10,40 @@
 - **错误隔离**：单个 Provider 脚本错误不影响其他 Provider
 - **健康检查**：`GET /health` 展示各 Provider 状态与模式
 
+## 项目结构
+
+```
+sync_gateway/
+├── app/                    # 应用代码
+│   ├── main.py             # FastAPI 入口与路由
+│   ├── api/                # API 路由层（按版本/资源拆分）
+│   ├── core/               # 核心领域：配置契约、转换引擎
+│   │   ├── config.py
+│   │   └── engine.py
+│   └── services/           # 基础设施服务：代理、配置管理
+│       ├── proxy.py
+│       └── nacos.py
+├── config/                 # 配置文件
+│   └── gateway.yaml        # Provider 映射配置
+├── tests/                  # 测试
+├── scripts/                # 运维/初始化脚本
+├── docs/                   # 文档
+├── requirements.txt
+└── README.md
+```
+
 ## 快速启动
 
 ```bash
+# 1. 创建虚拟环境
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. 安装依赖
 pip install -r requirements.txt
-python main.py
+
+# 3. 启动服务（从项目根目录运行）
+python -m app.main
 ```
 
 ## 调用示例

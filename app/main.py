@@ -1,23 +1,23 @@
 """同步任务映射网关入口"""
 import os
 import copy
+from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional
 from fastapi import FastAPI, Request, Header, HTTPException, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 import uvicorn
 
-from core.config import GatewayConfig, ProviderConfig, AuthConfig
-from core.engine import TransformEngine
-from core.proxy import ProxyClient
-from core.nacos import NacosConfigManager
-
-app = FastAPI(title="Sync Gateway", version="1.0.0")
-proxy = ProxyClient()
+from app.core.config import GatewayConfig, ProviderConfig, AuthConfig, EndpointConfig
+from app.core.engine import TransformEngine
+from app.services.proxy import ProxyClient
+from app.services.nacos import NacosConfigManager
 
 # 运行时状态
 _current_config: Optional[GatewayConfig] = None
 _transformers: Dict[str, TransformEngine] = {}
 _errors: Dict[str, str] = {}
+config_manager: Optional[NacosConfigManager] = None
+proxy = ProxyClient()
 
 
 def _build_transformers(cfg: GatewayConfig):
@@ -45,20 +45,35 @@ def _get_auth_header(auth: AuthConfig) -> Dict[str, str]:
     return {}
 
 
-def _resolve_provider(request: Request, body: Dict[str, Any]) -> str:
-    """解析目标 Provider：Header > Body.provider > Body.model 前缀"""
-    provider = request.headers.get("X-Provider")
-    if provider:
-        return provider
-    provider = body.get("provider")
-    if provider:
-        return provider
-    model = body.get("model", "")
-    if model:
-        for name in _current_config.providers.keys() if _current_config else []:
-            if model.startswith(name):
-                return name
-    raise HTTPException(status_code=400, detail="Missing X-Provider header or provider field")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期：启动时加载配置"""
+    global config_manager
+    config_manager = NacosConfigManager(
+        server_addresses=os.getenv("NACOS_SERVER"),
+        data_id=os.getenv("NACOS_DATA_ID", "sync-gateway.yaml"),
+        local_fallback="./config/gateway.yaml",
+    )
+    config_manager.add_listener(_on_config_change)
+    config_manager.add_error_listener(_on_config_error)
+    cfg = config_manager.start()
+    _on_config_change(cfg)
+    yield
+    await proxy.client.aclose()
+
+
+app = FastAPI(title="Sync Gateway", version="1.0.0", lifespan=lifespan)
+
+
+def _on_config_change(cfg: GatewayConfig):
+    global _current_config
+    _current_config = cfg
+    _build_transformers(cfg)
+    print(f"[Config] loaded version={cfg.version}, providers={list(cfg.providers.keys())}")
+
+
+def _on_config_error(error: Exception, raw: str):
+    print(f"[Gateway] config error: {error}")
 
 
 @app.post("/v1/generate")
@@ -143,7 +158,7 @@ async def health():
             "status": "error" if name in _errors else "ok",
             "error": _errors.get(name),
             "mode": mode,
-            "timeout": provider.endpoints.get("generate", {}).timeout if provider.endpoints.get("generate") else 120,
+            "timeout": provider.endpoints.get("generate", EndpointConfig(path="/")).timeout,
         }
 
     overall = "ok" if not _errors else "degraded" if any(
@@ -175,35 +190,6 @@ async def admin_rollback(steps: int = Query(1, ge=1)):
         raise HTTPException(status_code=400, detail="Rollback failed: no history")
     _build_transformers(cfg)
     return {"message": "Rollback success", "version": cfg.version}
-
-
-# ========== 启动 ==========
-config_manager: Optional[NacosConfigManager] = None
-
-
-def on_config_change(cfg: GatewayConfig):
-    global _current_config
-    _current_config = cfg
-    _build_transformers(cfg)
-    print(f"[Config] loaded version={cfg.version}, providers={list(cfg.providers.keys())}")
-
-
-def on_config_error(error: Exception, raw: str):
-    print(f"[Gateway] config error: {error}")
-
-
-@app.on_event("startup")
-async def startup():
-    global config_manager
-    config_manager = NacosConfigManager(
-        server_addresses=os.getenv("NACOS_SERVER"),
-        data_id=os.getenv("NACOS_DATA_ID", "sync-gateway.yaml"),
-        local_fallback="./gateway.yaml",
-    )
-    config_manager.add_listener(on_config_change)
-    config_manager.add_error_listener(on_config_error)
-    cfg = config_manager.start()
-    on_config_change(cfg)
 
 
 if __name__ == "__main__":

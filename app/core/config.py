@@ -1,6 +1,6 @@
 """同步网关配置契约"""
 from typing import Dict, Any, Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class AuthConfig(BaseModel):
@@ -23,8 +23,7 @@ class FieldRule(BaseModel):
     map: Optional[Dict[str, Any]] = None
     expr: Optional[str] = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ProviderConfig(BaseModel):

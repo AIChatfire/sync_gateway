@@ -103,5 +103,8 @@ ENV/
 
 # IDE settings
 .vscode/
-
 .idea
+
+# Project runtime
+.history/
+*.pid

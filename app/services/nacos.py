@@ -3,7 +3,7 @@ import os
 import yaml
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Callable
-from core.config import GatewayConfig
+from app.core.config import GatewayConfig
 
 
 @dataclass
@@ -91,6 +91,12 @@ class NacosConfigManager:
         self._history.insert(0, snapshot)
         if len(self._history) > self.max_history:
             self._history.pop()
+        self._current = snapshot
+
+        if not any(s.version == parsed.version for s in self._history):
+            self._history.insert(0, snapshot)
+            if len(self._history) > self.max_history:
+                self._history.pop()
         self._current = snapshot
 
         for cb in self._listeners:
