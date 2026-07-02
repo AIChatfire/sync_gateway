@@ -9,6 +9,7 @@ import uvicorn
 
 from app.core.config import GatewayConfig, ProviderConfig, AuthConfig, EndpointConfig
 from app.core.engine import TransformEngine
+from app.core.observability import setup_logfire
 from app.services.proxy import ProxyClient
 from app.services.nacos import NacosConfigManager
 
@@ -63,6 +64,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Sync Gateway", version="1.0.0", lifespan=lifespan)
+setup_logfire(app)
 
 
 def _on_config_change(cfg: GatewayConfig):

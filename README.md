@@ -108,15 +108,15 @@ docker run -d --name sync-gateway \
 `.github/workflows/docker-image.yml` 定义了完整流水线，`test` 通过后才会 `build-and-push`：
 
 ```
-push/PR → test（flake8 + pytest）→ build-and-push（仅 main/tag，PR 不推送）→ 推送到 GHCR
+push/PR → test（flake8 + pytest）→ build-and-push（仅 master/tag，PR 不推送）→ 推送到 GHCR
 ```
 
-- **触发条件**：push 到 `main`、打 `v*.*.*` 标签、PR 到 `main`（PR 只跑测试，不构建推送）、也支持手动触发（Actions 页面 `Run workflow`）
+- **触发条件**：push 到 `master`、打 `v*.*.*` 标签、PR 到 `master`（PR 只跑测试，不构建推送）、也支持手动触发（Actions 页面 `Run workflow`）
 - **镜像仓库**：GitHub Container Registry（`ghcr.io/<owner>/<repo>`），用仓库自带的 `GITHUB_TOKEN` 鉴权，无需额外配置 secret
 - **镜像标签规则**：
   | 触发场景 | 生成标签 |
   |---|---|
-  | push 到 `main` | `main`、`latest`、`<7位短commit sha>` |
+  | push 到 `master` | `master`、`latest`、`<7位短commit sha>` |
   | 打标签 `v1.2.3` | `1.2.3`、`1.2`、`latest` |
   | 其他分支 push | `<分支名>` |
 - **构建加速**：用 GitHub Actions 缓存（`type=gha`）复用 Docker 层，多阶段 Dockerfile 的依赖安装层命中缓存后可跳过重新 `pip install`
@@ -130,6 +130,23 @@ docker compose pull && docker compose up -d
 ```
 
 如需扩展为「push 后自动 SSH 到服务器部署」，在 `build-and-push` job 后追加一个 deploy job（用 `appleboy/ssh-action` 之类的 action），把服务器地址/账号/密钥配置到仓库 Secrets 即可，目前先保持"构建推送镜像、手动拉取上线"这一步，避免过早引入生产凭据风险。
+
+## 可观测性（Logfire）
+
+集成了 [Pydantic Logfire](https://logfire.pydantic.dev)，对 FastAPI 请求和 httpx 下游调用自动打点（`app/core/observability.py`），无需在业务代码里手写埋点。
+
+- **默认零配置**：不设置 `LOGFIRE_TOKEN` 时不会联网上报，只在本机 console 打印 `warn` 及以上级别日志，本地开发不受影响
+- **生产开启只需一步**：在 [logfire.pydantic.dev](https://logfire.pydantic.dev) 创建项目拿到写入令牌，填入 `.env` 的 `LOGFIRE_TOKEN` 后重启容器即可自动上报，不用改代码
+- **追踪范围**：每个 `/v1/generate` 请求（含参数校验详情）+ 每次下游 httpx 调用（延迟、状态码），`/health` 高频探活接口默认排除，避免噪音
+- **相关环境变量**：
+
+  | 环境变量 | 默认值 | 说明 |
+  |---|---|---|
+  | `LOGFIRE_TOKEN` | 空 | 写入令牌，留空则不上报 |
+  | `LOGFIRE_SERVICE_NAME` | `sync-gateway` | Logfire 项目里的服务名 |
+  | `LOGFIRE_ENVIRONMENT` | `production`（compose 默认）/ `development`（本地默认） | 区分环境的标签 |
+  | `LOGFIRE_CAPTURE_HEADERS` | `false` | 是否记录请求/响应 headers（含 Authorization，谨慎开启） |
+  | `LOGFIRE_EXCLUDED_URLS` | `/health` | 排除追踪的 URL 正则，逗号分隔 |
 
 ## 调用示例
 

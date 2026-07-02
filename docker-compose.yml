@@ -27,6 +27,10 @@ services:
       GUNICORN_WORKER_CONNECTIONS: "${GUNICORN_WORKER_CONNECTIONS:-1000}"
       GUNICORN_TIMEOUT: "${GUNICORN_TIMEOUT:-150}"
       GUNICORN_LOG_LEVEL: "${GUNICORN_LOG_LEVEL:-info}"
+      # ---- Logfire 可观测性（留空则仅本地打印，不上报）----
+      LOGFIRE_TOKEN: "${LOGFIRE_TOKEN:-}"
+      LOGFIRE_SERVICE_NAME: "${LOGFIRE_SERVICE_NAME:-sync-gateway}"
+      LOGFIRE_ENVIRONMENT: "${LOGFIRE_ENVIRONMENT:-production}"
     volumes:
       # 挂载本地配置文件，修改后重启容器即可生效，无需重新构建镜像
       - ./config/gateway.yaml:/app/config/gateway.yaml:ro
