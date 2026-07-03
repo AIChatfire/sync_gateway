@@ -15,22 +15,36 @@ services:
       NACOS_SERVER: "${NACOS_SERVER:-}"
       NACOS_DATA_ID: "${NACOS_DATA_ID:-sync-gateway.yaml}"
       CONFIG_MAX_HISTORY: "${CONFIG_MAX_HISTORY:-5}"
-      # ---- 各 Provider 密钥，按需在 .env 中覆盖 ----
+      # ---- 各 Provider 地址，按需在 .env 中覆盖；API key 从入口请求 headers 获取 ----
       VOLC_SD_BASE_URL: "${VOLC_SD_BASE_URL:-}"
-      VOLC_SD_API_KEY: "${VOLC_SD_API_KEY:-}"
       SEEDANCE_BASE_URL: "${SEEDANCE_BASE_URL:-}"
-      SEEDANCE_API_KEY: "${SEEDANCE_API_KEY:-}"
       KLING_BASE_URL: "${KLING_BASE_URL:-}"
-      KLING_API_KEY: "${KLING_API_KEY:-}"
       # ---- Gunicorn 并发调优（默认按 CPU*2+1 自动计算，可显式覆盖） ----
       GUNICORN_WORKERS: "${GUNICORN_WORKERS:-}"
+      GUNICORN_MAX_DEFAULT_WORKERS: "${GUNICORN_MAX_DEFAULT_WORKERS:-9}"
       GUNICORN_WORKER_CONNECTIONS: "${GUNICORN_WORKER_CONNECTIONS:-1000}"
+      GUNICORN_BACKLOG: "${GUNICORN_BACKLOG:-2048}"
       GUNICORN_TIMEOUT: "${GUNICORN_TIMEOUT:-150}"
+      GUNICORN_GRACEFUL_TIMEOUT: "${GUNICORN_GRACEFUL_TIMEOUT:-150}"
+      GUNICORN_KEEPALIVE: "${GUNICORN_KEEPALIVE:-5}"
+      GUNICORN_MAX_REQUESTS: "${GUNICORN_MAX_REQUESTS:-2000}"
+      GUNICORN_MAX_REQUESTS_JITTER: "${GUNICORN_MAX_REQUESTS_JITTER:-200}"
+      GUNICORN_WORKER_TMP_DIR: "${GUNICORN_WORKER_TMP_DIR:-/dev/shm}"
+      GUNICORN_FORWARDED_ALLOW_IPS: "${GUNICORN_FORWARDED_ALLOW_IPS:-*}"
+      GUNICORN_LIMIT_REQUEST_LINE: "${GUNICORN_LIMIT_REQUEST_LINE:-8190}"
+      GUNICORN_LIMIT_REQUEST_FIELDS: "${GUNICORN_LIMIT_REQUEST_FIELDS:-100}"
+      GUNICORN_LIMIT_REQUEST_FIELD_SIZE: "${GUNICORN_LIMIT_REQUEST_FIELD_SIZE:-8190}"
+      GUNICORN_CAPTURE_OUTPUT: "${GUNICORN_CAPTURE_OUTPUT:-true}"
       GUNICORN_LOG_LEVEL: "${GUNICORN_LOG_LEVEL:-info}"
+      GUNICORN_STATSD_HOST: "${GUNICORN_STATSD_HOST:-}"
+      # ---- 下游 HTTP 连接池（全局），Provider 并发阈值在 gateway.yaml 的 resilience 中配置 ----
+      PROXY_MAX_CONNECTIONS: "${PROXY_MAX_CONNECTIONS:-100}"
+      PROXY_MAX_KEEPALIVE_CONNECTIONS: "${PROXY_MAX_KEEPALIVE_CONNECTIONS:-20}"
       # ---- Logfire 可观测性（留空则仅本地打印，不上报）----
       LOGFIRE_TOKEN: "${LOGFIRE_TOKEN:-}"
       LOGFIRE_SERVICE_NAME: "${LOGFIRE_SERVICE_NAME:-sync-gateway}"
       LOGFIRE_ENVIRONMENT: "${LOGFIRE_ENVIRONMENT:-production}"
+      LOGFIRE_EXCLUDED_URLS: "${LOGFIRE_EXCLUDED_URLS:-/health|/live|/ready}"
     volumes:
       # 挂载本地配置文件，修改后重启容器即可生效，无需重新构建镜像
       - ./config/gateway.yaml:/app/config/gateway.yaml:ro
@@ -42,8 +56,9 @@ services:
         reservations:
           cpus: "${GATEWAY_CPU_RESERVE:-0.5}"
           memory: "${GATEWAY_MEM_RESERVE:-256m}"
+    stop_grace_period: "${GATEWAY_STOP_GRACE_PERIOD:-180s}"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status==200 else 1)"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).status==200 else 1)"]
       interval: 30s
       timeout: 5s
       start_period: 10s

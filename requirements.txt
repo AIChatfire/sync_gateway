@@ -6,3 +6,6 @@ pydantic>=2.7.0
 pyyaml>=6.0.1
 nacos-sdk-python>=0.1.14
 logfire[fastapi,httpx]>=4.0
+
+
+

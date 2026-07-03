@@ -12,6 +12,7 @@ class ConfigSnapshot:
     raw: str
     parsed: GatewayConfig
     timestamp: float
+    source: str
 
 
 class NacosConfigManager:
@@ -74,7 +75,10 @@ class NacosConfigManager:
 
     def _apply(self, content: str, source: str) -> GatewayConfig:
         try:
-            data = yaml.safe_load(content)
+            # 先展开 ${VAR} / $VAR 形式的环境变量占位符（如 base_url: "${VOLC_SD_BASE_URL}"），
+            # 再解析 YAML；未设置的环境变量会被替换成空字符串（os.path.expandvars 默认行为）。
+            expanded = os.path.expandvars(content)
+            data = yaml.safe_load(expanded)
             parsed = GatewayConfig(**data)
         except Exception as e:
             if self._current:
@@ -87,17 +91,9 @@ class NacosConfigManager:
             raw=content,
             parsed=parsed,
             timestamp=__import__("time").time(),
+            source=source,
         )
-        self._history.insert(0, snapshot)
-        if len(self._history) > self.max_history:
-            self._history.pop()
-        self._current = snapshot
-
-        if not any(s.version == parsed.version for s in self._history):
-            self._history.insert(0, snapshot)
-            if len(self._history) > self.max_history:
-                self._history.pop()
-        self._current = snapshot
+        self._remember(snapshot)
 
         for cb in self._listeners:
             try:
@@ -106,20 +102,35 @@ class NacosConfigManager:
                 self._notify_error(e, content)
         return parsed
 
+    def _remember(self, snapshot: ConfigSnapshot):
+        if self._history and self._history[0].raw == snapshot.raw:
+            self._history[0] = snapshot
+        else:
+            self._history.insert(0, snapshot)
+            if len(self._history) > self.max_history:
+                self._history.pop()
+        self._current = snapshot
+
     def rollback(self, steps: int = 1) -> Optional[GatewayConfig]:
         if steps >= len(self._history):
             return None
         target = self._history[steps]
-        self._history.insert(0, target)
-        self._current = target
+        snapshot = ConfigSnapshot(
+            version=target.version,
+            raw=target.raw,
+            parsed=target.parsed,
+            timestamp=__import__("time").time(),
+            source=f"rollback:{steps}",
+        )
+        self._remember(snapshot)
         for cb in self._listeners:
-            cb(target.parsed)
-        return target.parsed
+            cb(snapshot.parsed)
+        return snapshot.parsed
 
     def history(self) -> List[Dict[str, Any]]:
         return [
-            {"version": s.version, "timestamp": s.timestamp, "source": "nacos" if i == 0 else "history"}
-            for i, s in enumerate(self._history)
+            {"version": s.version, "timestamp": s.timestamp, "source": s.source}
+            for s in self._history
         ]
 
     def _notify_error(self, error: Exception, raw: str):

@@ -1,21 +1,27 @@
-version: "2026-07-02.001"
+version: "2026-07-02.003"
 active: true
+
+# 动态入口路径列表：短写形式会自动映射到默认逻辑端点 generate。
+# 真正转发到哪个下游源路径，由请求时选中的 provider.endpoint.path 决定。
+routes:
+  - "/v1/images/generations"
+  - "/api/v3/images/generations"
 
 providers:
   # 透传模式：火山接口已是原生格式，零转换
   volc_sd:
     base_url: "${VOLC_SD_BASE_URL}"
-    auth: {type: bearer, env: VOLC_SD_API_KEY}
+    auth: {type: bearer}
     passthrough: true
-    endpoints:
-      generate: {method: POST, path: "/v1/images/generations", timeout: 60}
+    resilience: {max_concurrency: 100, failure_threshold: 5, recovery_seconds: 30, retry_attempts: 0}
+    endpoint: {method: POST, path: "/v1/images/generations", timeout: 60}
 
   # 声明式+表达式：官方 Seedance 需要字段映射
   seedance:
     base_url: "${SEEDANCE_BASE_URL}"
-    auth: {type: bearer, env: SEEDANCE_API_KEY}
-    endpoints:
-      generate: {method: POST, path: "/v1/images/generations", timeout: 120}
+    auth: {type: bearer}
+    resilience: {max_concurrency: 80, failure_threshold: 5, recovery_seconds: 30, retry_attempts: 0}
+    endpoint: {method: POST, path: "/v1/images/generations", timeout: 120}
     request_map:
       model: {const: "seedance-image"}
       "input.prompt": {from: prompt}
@@ -32,11 +38,14 @@ providers:
       created: {from: created_at}
 
   # 脚本模式：Kling 复杂预处理
+  # 注意：Kling 下游接口路径是单数 "/v1/image/generations"（不是 images），
+  # 这正好演示了同一个来源路径（如 /v1/image-task/generations）在选中不同
+  # provider 时，会被路由到各自不同的下游目标路径。
   kling:
     base_url: "${KLING_BASE_URL}"
-    auth: {type: bearer, env: KLING_API_KEY}
-    endpoints:
-      generate: {method: POST, path: "/v1/images/generations", timeout: 90}
+    auth: {type: bearer}
+    resilience: {max_concurrency: 50, failure_threshold: 5, recovery_seconds: 45, retry_attempts: 0}
+    endpoint: {method: POST, path: "/v1/image/generations", timeout: 90}
     request_script: |
       def transform(body):
           ratio = body.get("aspect_ratio", "16:9")
@@ -55,3 +64,18 @@ providers:
               "images": [{"url": i["url"], "seed": i.get("seed")} for i in body.get("data", [])],
               "created": body.get("created"),
           }
+
+  # 真实测试
+  ark_seedream:
+      base_url: "https://ark.cn-beijing.volces.com"
+      auth: {type: bearer}
+      passthrough: true
+      resilience:
+        max_concurrency: 50
+        failure_threshold: 5
+        recovery_seconds: 45
+        retry_attempts: 0
+      endpoint:
+        method: POST
+        path: "/api/v3/images/generations"
+        timeout: 180
